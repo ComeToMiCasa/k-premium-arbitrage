@@ -1,4 +1,6 @@
 import time
+from decimal import Decimal, ROUND_DOWN
+from fetch_data import *
 
 
 def fetch_balance(exchange, currency):
@@ -81,7 +83,10 @@ def adjust_balances_to_leverage(spot_exchange, futures_exchange, leverage):
     spot_balance = fetch_balance(spot_exchange, 'USDT')
     futures_balance = fetch_balance(futures_exchange, 'USDT')
 
-    required_futures_balance = spot_balance / leverage
+    print(spot_balance, futures_balance)
+
+    required_futures_balance = (
+        spot_balance + futures_balance) / (leverage + 1)
 
     if required_futures_balance > futures_balance:
         transfer_amount = required_futures_balance - futures_balance
@@ -95,30 +100,85 @@ def adjust_balances_to_leverage(spot_exchange, futures_exchange, leverage):
         print("No transfer needed. Balances are already in the desired ratio.")
 
 
-def withdraw(exchange, currency, percentage, address, tag=None):
+def transfer_to_master(exchange, master_exchange, currency, amount):
     """
-    Withdraws a specified percentage of a currency to a given address.
+    Transfer funds from a sub-account to the master account.
 
-    :param exchange: The ccxt exchange instance.
+    :param exchange: The ccxt exchange instance of the sub-account.
+    :param currency: The currency to transfer (e.g., 'BTC').
+    :param amount: The amount to transfer.
+    :return: The transfer details if successful, None otherwise.
+    """
+    try:
+        transfer = exchange.sapiPostSubAccountTransferSubToMaster({
+            'asset': currency,
+            'amount': float(amount)
+        })
+        print(f"Transfer to master account successful: {transfer}")
+        return transfer
+    except Exception as e:
+        print(f"An error occurred during transfer: {e}")
+        return None
+
+
+def withdraw(exchange, master_exchange, currency, percentage, address, tag=None, network=None):
+    """
+    Withdraws a specified percentage of a currency to a given address, optionally specifying a network.
+
+    :param exchange: The ccxt exchange instance of the sub-account.
     :param currency: The currency to withdraw (e.g., 'BTC').
     :param percentage: The percentage of the balance to withdraw.
     :param address: The address to withdraw to.
     :param tag: An optional tag or memo for the withdrawal.
+    :param network: An optional network to specify for the withdrawal.
     :return: The withdrawal details if successful, None otherwise.
     """
     try:
-        # Fetch the balance
+        # Fetch the balance from the sub-account
         balance = fetch_balance(exchange, currency)
-        print(f"Balance: {balance} {currency}")
+        if balance is None:
+            print("Error: Unable to fetch balance.")
+            return None
+        print(f"Sub-account Balance: {balance} {currency}")
 
         # Calculate the amount to withdraw based on the specified percentage of the balance
-        amount = balance * percentage / 100
+        amount = Decimal(balance) * Decimal(percentage) / Decimal(100)
 
-        # Withdraw funds
+        # Fetch the withdraw integer multiple for the currency and network
+        withdraw_integer_multiple = get_withdraw_integer_multiple(
+            exchange, currency, network)
+        if withdraw_integer_multiple is None:
+            print(
+                f"Error: Unable to fetch withdraw integer multiple for currency {currency} on network {network}.")
+            return None
+
+        print(withdraw_integer_multiple)
+        print("amount", float(amount))
+
+        # Ensure the amount is rounded to the required precision
+        amount = (amount // withdraw_integer_multiple) * \
+            withdraw_integer_multiple
+
+        print("amount", float(amount))
+
+        # Transfer the amount to the master account
+        transfer_result = transfer_to_master(
+            exchange, master_exchange, currency, amount)
+        if not transfer_result:
+            print("Error: Transfer to master account failed.")
+            return None
+
+        # Withdraw the funds from the master account
+        params = {}
+        if network:
+            params['network'] = network
+
         if tag:
-            withdrawal = exchange.withdraw(currency, amount, address, tag)
+            withdrawal = master_exchange.withdraw(
+                currency, float(amount), address, tag, params=params)
         else:
-            withdrawal = exchange.withdraw(currency, amount, address)
+            withdrawal = master_exchange.withdraw(
+                currency, float(amount), address, params=params)
 
         print(f"Withdrawal request successful: {withdrawal}")
         return withdrawal

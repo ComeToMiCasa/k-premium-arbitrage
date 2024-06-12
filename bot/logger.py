@@ -9,44 +9,49 @@ CSV_HEADERS = ['timestamp', 'target_buy_avg_price', 'target_buy_quantity', 'targ
                'medium_sell_avg_price', 'medium_sell_quantity', 'medium_sell_total_cost', 'medium_sell_fee']
 
 
-def log_order_details_to_csv(order_details):
+def log_order_details_to_csv(timestamp, buy_details, short_details, sell_details, close_short_details, filename='order_log.csv'):
     """
-    Writes the order details to a new row in the CSV file.
+    Logs the order details to a CSV file.
 
-    :param order_details: A dictionary with the order details for target buy, target sell, medium buy, and medium sell.
+    :param timestamp: The timestamp of the order.
+    :param buy_details: The details of the buy order.
+    :param short_details: The details of the short order.
+    :param sell_details: The details of the sell order.
+    :param close_short_details: The details of the close short order.
+    :param filename: The name of the CSV file to log to.
     """
-    with open(CSV_FILE_PATH, mode='a', newline='') as file:
-        writer = csv.writer(file)
+    fieldnames = ['timestamp', 'buy_order', 'buy_average_price', 'buy_quantity', 'buy_total_cost', 'buy_fee',
+                  'short_order', 'short_average_price', 'short_quantity', 'short_total_cost', 'short_fee',
+                  'sell_order', 'sell_average_price', 'sell_quantity', 'sell_total_cost', 'sell_fee',
+                  'close_short_order', 'close_short_average_price', 'close_short_quantity', 'close_short_total_cost', 'close_short_fee']
 
-        # Write headers if the file is empty
+    row = {
+        'timestamp': timestamp,
+        'buy_order': buy_details['order']['id'] if buy_details else None,
+        'buy_average_price': buy_details['average_price'] if buy_details else None,
+        'buy_quantity': buy_details['quantity'] if buy_details else None,
+        'buy_total_cost': buy_details['total_cost'] if buy_details else None,
+        'buy_fee': buy_details['fee'] if buy_details else None,
+        'short_order': short_details['order']['id'] if short_details else None,
+        'short_average_price': short_details['average_price'] if short_details else None,
+        'short_quantity': short_details['quantity'] if short_details else None,
+        'short_total_cost': short_details['total_cost'] if short_details else None,
+        'short_fee': short_details['fee'] if short_details else None,
+        'sell_order': sell_details['order']['id'] if sell_details else None,
+        'sell_average_price': sell_details['average_price'] if sell_details else None,
+        'sell_quantity': sell_details['quantity'] if sell_details else None,
+        'sell_total_cost': sell_details['total_cost'] if sell_details else None,
+        'sell_fee': sell_details['fee'] if sell_details else None,
+        'close_short_order': close_short_details['order']['id'] if close_short_details else None,
+        'close_short_average_price': close_short_details['average_price'] if close_short_details else None,
+        'close_short_quantity': close_short_details['quantity'] if close_short_details else None,
+        'close_short_total_cost': close_short_details['total_cost'] if close_short_details else None,
+        'close_short_fee': close_short_details['fee'] if close_short_details else None
+    }
+
+    # Write to CSV file
+    with open(filename, mode='a', newline='') as file:
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
         if file.tell() == 0:
-            writer.writerow(CSV_HEADERS)
-
-        # Extract details
-        timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
-        target_buy = order_details.get('target_buy', {})
-        target_sell = order_details.get('target_sell', {})
-        medium_buy = order_details.get('medium_buy', {})
-        medium_sell = order_details.get('medium_sell', {})
-
-        row = [
-            timestamp,
-            target_buy.get('average_price', ''),
-            target_buy.get('quantity', ''),
-            target_buy.get('total_cost', ''),
-            target_buy.get('fee', ''),
-            target_sell.get('average_price', ''),
-            target_sell.get('quantity', ''),
-            target_sell.get('total_cost', ''),
-            target_sell.get('fee', ''),
-            medium_buy.get('average_price', ''),
-            medium_buy.get('quantity', ''),
-            medium_buy.get('total_cost', ''),
-            medium_buy.get('fee', ''),
-            medium_sell.get('average_price', ''),
-            medium_sell.get('quantity', ''),
-            medium_sell.get('total_cost', ''),
-            medium_sell.get('fee', '')
-        ]
-
+            writer.writeheader()
         writer.writerow(row)

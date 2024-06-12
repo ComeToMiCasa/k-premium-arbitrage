@@ -1,6 +1,7 @@
 from order import *
 from fetch_data import *
 from logger import *
+from safety import *
 
 
 class State:
@@ -40,26 +41,30 @@ class State:
         return self.krw_balance / fx_rate + self.usdt_balance
 
 
-fx_rate = None
+fx_rate = 1300
 
-BUY_PERCENTAGE = 50
+BUY_PERCENTAGE = 100
 
 
-def determine_target(fx_rate: float):
+def determine_target(fx_rate: float, network_data):
     """
-    Finds the cryptocurrency with the highest K-premium.
+    Finds the cryptocurrency with the highest K-premium that is also depositable.
 
     :param fx_rate: The exchange rate from USDT to KRW.
-    :return: The target currency with the highest premium.
+    :return: The target currency with the highest premium that is depositable.
     """
     # Calculate premiums for all tradable pairs in Coinone.
     # Returns an array sorted in descending order by premium percentage.
-    premiums = conc_find_highest_premium(fx_rate)
+    premiums = conc_find_highest_premium(fx_rate, list(network_data.keys()))
 
-    # Take the currency with the highest premium.
-    target = premiums[0][0]
+    # Iterate through the sorted premiums to find the first depositable currency
+    for premium in premiums:
+        if safety_check(premium[0].split("/")[0], network_data):
+            return premium
 
-    return target
+    # If no depositable currency is found, return None or raise an exception
+    print("No depositable currency found with a premium.")
+    return None
 
 
 def try_target_buy(target: str, exchange):
@@ -139,34 +144,74 @@ def try_target_short(exchange, target: str, leverage: int):
         return None
 
 
+# def try_target_withdraw(target: str):
+#     """
+#     Places and confirms a withdraw request for the target currency from Binance to Coinone.
+
+#     :param target: The target currency to withdraw (e.g., 'BTC').
+#     :return: True if the withdrawal is successful, False otherwise.
+#     """
+#     try:
+#         # Fetch withdraw address and (optionally) tag from Coinone.
+#         # TODO: need to add checking sending network.
+#         target_withdraw_address, target_withdraw_tag, target_withdraw_network = fetch_deposit_address(
+#             coinone, target, False)
+
+#         # Make the withdraw request.
+#         target_withdrawal = withdraw(
+#             binance, target, 100, target_withdraw_address, target_withdraw_tag, target_withdraw_network)
+
+#         # Return the withdrawal status.
+#         if target_withdrawal is None:
+#             return False
+
+#         target_withdrawal_id = target_withdrawal['id']
+
+#         # Wait until the withdrawal is complete.
+#         wait_for_withdrawal_completion(
+#             binance, coinone, target, target_withdrawal_id)
+
+#         return True
+#     except Exception as e:
+#         print(f"An error occurred: {e}")
+#         return False
+
 def try_target_withdraw(target: str):
     """
     Places and confirms a withdraw request for the target currency from Binance to Coinone.
+    If the currency is not depositable on Coinone, sells the currency on Binance.
 
-    :param target: The target currency to withdraw (e.g., 'BTC').
-    :return: True if the withdrawal is successful, False otherwise.
+    :param target: The target currency to withdraw or sell (e.g., 'BTC').
+    :return: True if the withdrawal or sell is successful, False otherwise.
     """
     try:
-        # Fetch withdraw address and (optionally) tag from Coinone.
-        # TODO: need to add checking sending network.
-        target_withdraw_address, target_withdraw_tag = fetch_deposit_address(
-            coinone, target)
+        # Check if the currency is depositable on Coinone
+        if is_currency_depositable(target):
+            # Fetch withdraw address and (optionally) tag from Coinone
+            target_withdraw_address, target_withdraw_tag, network = fetch_deposit_address(
+                coinone, target, is_fetch=False)
 
-        # Make the withdraw request.
-        target_withdrawal = withdraw(
-            binance, target, 100, target_withdraw_address, target_withdraw_tag)
+            # Make the withdraw request
+            target_withdrawal = withdraw(
+                binance, target, 100, target_withdraw_address, tag=target_withdraw_tag, network=network)
 
-        # Return the withdrawal status.
-        if target_withdrawal is None:
-            return False
+            # Return the withdrawal status
+            if target_withdrawal is None:
+                return False
 
-        target_withdrawal_id = target_withdrawal['id']
+            target_withdrawal_id = target_withdrawal['id']
 
-        # Wait until the withdrawal is complete.
-        wait_for_withdrawal_completion(
-            binance, coinone, target, target_withdrawal_id)
+            # Wait until the withdrawal is complete
+            wait_for_withdrawal_completion(
+                binance, coinone, target, target_withdrawal_id)
 
-        return True
+            return True
+        else:
+            # If the currency is not depositable, sell it on Binance
+            sell_order_details = sell(binance, target, "USDT", 100)
+            if sell_order_details is None:
+                return False
+            return True
     except Exception as e:
         print(f"An error occurred: {e}")
         return False
@@ -353,7 +398,7 @@ def sell_and_close(target):
         """
         nonlocal sell_details
         try:
-            sell_details = try_target_sell(target, coinone)
+            sell_details = try_target_sell(target)
             if sell_details:
                 print("Coinone sell order details:", sell_details)
             else:
@@ -391,10 +436,34 @@ def sell_and_close(target):
     return sell_details, close_details
 
 
+def read_address_network_csv(file_path):
+    """
+    Reads the address_network.csv file and returns a dictionary of relevant information for each currency.
+
+    :param file_path: The path to the address_network.csv file.
+    :return: A dictionary where the keys are currencies and values are dictionaries of their corresponding details.
+    """
+    address_network_info = {}
+    with open(file_path, mode='r') as file:
+        csv_reader = csv.DictReader(file)
+        for row in csv_reader:
+            currency = row['Currency']
+            address_network_info[currency] = {
+                'Market ID': row['Market ID'],
+                'Deposit Address': row['Deposit Address'],
+                'Tag': row['Tag'],
+                'Withdraw Network': row['Withdraw Network'],
+                'Deposit Network': row['Deposit Network'],
+                'Unavailable': row['Unavailable'],
+                'Deposit Network ID': row['Deposit Network ID']
+            }
+    return address_network_info
+
+
 leverage = 5
 
 
-def cycle(state: State):
+def cycle(state: State, csv_file_data):
     """
     Executes a full trading cycle including buying, withdrawing, and selling target and medium currencies.
 
@@ -405,19 +474,27 @@ def cycle(state: State):
         return None
 
     # Determine the target currency with the highest premium.
-    target = determine_target(fx_rate)
+    target_data = determine_target(fx_rate, csv_file_data)
+    target = target_data[0]
+
+    print(target_data)
+    return
 
     # Try to buy, withdraw, and sell the target currency.
     # target_buy_details = try_target_buy(target, binance)
 
     # Hedge the position
-    target_buy_details, target_short_details = adjust_and_hedge(
+    target_buy_details, target_hedge_details = adjust_and_hedge(
         target, leverage)
     target_withdraw_success = try_target_withdraw(target)
-    target_sell_details = try_target_sell(target)
+    # target_sell_details = try_target_sell(target)
+    # Sell and close positions
+    target_sell_details, target_close_details = sell_and_close(target)
 
     # Determine the medium currency with the least transfer loss.
     medium = determine_medium()
+
+    # TODO: Maybe change to using just USDT or USDC?
 
     # Try to buy, withdraw, and sell the medium currency.
     medium_buy_details = try_medium_buy(medium)
@@ -426,7 +503,9 @@ def cycle(state: State):
 
     return {
         'target_buy': target_buy_details,
+        'target_hedge': target_hedge_details,
         'target_sell': target_sell_details,
+        'target_close': target_close_details,
         'medium_buy': medium_buy_details,
         'medium_sell': medium_sell_details
     }
@@ -439,10 +518,18 @@ def go():
 
     state = State(krw_balance=0, usdt_balance=0)
 
-    while True:
-        state.fetch_balance()
-        order_details = cycle(state)
-        if order_details:
-            log_order_details_to_csv(order_details)
-        # Add a sleep interval to control the frequency of cycles
-        time.sleep(1)
+    with read_address_network_csv("address_network.csv") as csv_file_data:
+
+        while True:
+            state.fetch_balance()
+            order_details = cycle(state, csv_file_data)
+            if order_details:
+                log_order_details_to_csv(order_details)
+            # Add a sleep interval to control the frequency of cycles
+            time.sleep(1)
+
+
+if __name__ == "__main__":
+    # print(fetch_deposit_address(coinone, "BTC", False))
+    # print(is_currency_depositable("ABL"))
+    print(determine_target(1300))

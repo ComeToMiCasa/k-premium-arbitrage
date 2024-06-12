@@ -6,6 +6,8 @@ import concurrent.futures
 import time
 import json
 import threading
+from address import get_address_from_csv
+from decimal import Decimal
 
 from symbols import coinone_tradeable_symbols
 from exchanges import *
@@ -70,7 +72,7 @@ def calc_price_diff(target: str = 'BTC', ex_a=None, ex_b=None, fx_rate: float = 
     ex_a_price_krw = fetch_exchange_price(ex_a, target + "/KRW")
     ex_b_price = fetch_exchange_price(ex_b, target + "/USDT")
 
-    print(ex_a_price_krw, ex_b_price, fx_rate)
+    # print(ex_a_price_krw, ex_b_price, fx_rate)
 
     ex_a_price = ex_a_price_krw / fx_rate
 
@@ -107,7 +109,7 @@ def conc_calc_transfer_loss(fx_rate: float):
     return results
 
 
-def conc_find_highest_premium(fx_rate: float, ex=coinone):
+def conc_find_highest_premium(fx_rate: float, currencies, ex=coinone):
     """
     Concurrently find the cryptocurrency with the highest premium on Coinone compared to Binance.
 
@@ -117,7 +119,7 @@ def conc_find_highest_premium(fx_rate: float, ex=coinone):
     """
     def calc_premium_for_symbol(symbol, ex, fx_rate):
         target = symbol.split('/')[0]
-        print("Calculating " + target + "...")
+        # print("Calculating " + target + "...")
 
         try:
             price_diff, price_diff_percent, _, _, _, _ = calc_price_diff(
@@ -131,8 +133,8 @@ def conc_find_highest_premium(fx_rate: float, ex=coinone):
     premiums = []
 
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        futures = {executor.submit(calc_premium_for_symbol, symbol, ex, fx_rate)
-                                   : symbol for symbol in coinone_tradeable_symbols}
+        futures = {executor.submit(
+            calc_premium_for_symbol, symbol, ex, fx_rate): symbol for symbol in currencies}
         for future in concurrent.futures.as_completed(futures):
             symbol = futures[future]
             try:
@@ -160,7 +162,7 @@ def fetch_supported_networks(exchange, currency):
         # Check if the specified currency is available
         if currency in currencies_info:
             currency_info = currencies_info[currency]
-            print(currency_info)
+            # print(currency_info)
 
             # Extract and return the available networks
             networks = currency_info.get('networks', {})
@@ -173,32 +175,86 @@ def fetch_supported_networks(exchange, currency):
         return []
 
 
-def fetch_deposit_address(exchange, target):
+def fetch_available_networks(exchange, currency):
     """
-    Fetches the deposit address and any associated tag or memo for a given currency from the specified exchange.
+    Extracts available networks for a given currency from the exchange.
+
+    :param exchange: The ccxt exchange instance.
+    :param currency: The currency to fetch network information for (e.g., 'TRX').
+    :return: A list of tuples containing the network dictionary key and the network name.
+    """
+    try:
+        # Fetch currency information
+        currencies = exchange.fetch_currencies()
+        if currency in currencies and 'networks' in currencies[currency]:
+            networks = [(key, net_info['info']['network'])
+                        for key, net_info in currencies[currency]['networks'].items()]
+            return networks
+        else:
+            print(
+                f"Currency {currency} not found or no network information available.")
+            return []
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return []
+
+
+def is_currency_depositable(currency):
+    """
+    Checks if a given currency is depositable on Coinone.
+
+    :param currency: The currency to check (e.g., 'BTC').
+    :return: True if the currency is depositable, False otherwise.
+    """
+    try:
+        # API endpoint for Coinone currency info
+        url = f'https://api.coinone.co.kr/public/v2/currencies/{currency}'
+
+        # Make the request
+        response = requests.get(url)
+
+        # Check if the request was successful
+        if response.status_code == 200:
+            data = response.json()
+            # Check the deposit status for the currency
+            deposit_status = data['currencies'][0]['deposit_status']
+            return deposit_status != 'suspended'
+        else:
+            print(
+                f"Failed to fetch data for {currency}. Status code: {response.status_code}")
+            return False
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return False
+
+
+def fetch_deposit_address(exchange, target, is_fetch=True):
+    """
+    Fetches the deposit address and any associated tag or memo for a given currency from the specified exchange or CSV file.
 
     :param exchange: The exchange object (e.g., ccxt.binance()).
     :param target: The target currency to fetch the deposit address for (e.g., 'XLM').
-    :return: A tuple containing the address and tag (or memo), or None if an error occurs.
+    :param is_fetch: Boolean flag to decide whether to fetch from exchange (True) or CSV file (False).
+    :return: A tuple containing the address, tag, and network, or None if an error occurs.
     """
-    try:
-        # Fetch the deposit address and any associated tag or memo
-        deposit_info = exchange.fetch_deposit_address(target)
+    if is_fetch:
+        try:
+            # Fetch the deposit address and any associated tag or memo from the exchange
+            deposit_info = exchange.fetch_deposit_address(target)
 
-        print(deposit_info)
+            # Extract the address, tag, and memo
+            address = deposit_info.get('address', None)
+            tag = deposit_info.get('tag', None)  # Also known as memo
+            memo = deposit_info.get('memo', None)
 
-        # Extract the address, tag, and memo
-        address = deposit_info.get('address', None)
-        tag = deposit_info.get('tag', None)  # Also known as memo
-        # Some exchanges use memo instead of tag
-        memo = deposit_info.get('memo', None)
-
-        # Return a tuple containing the address, tag, and memo
-        return address, tag
-
-    except ccxt.BaseError as e:
-        print(f"An error occurred: {e}")
-        return None
+            # Return a tuple containing the address, tag, and memo
+            return address, tag, memo
+        except ccxt.BaseError as e:
+            print(f"An error occurred: {e}")
+            return None, None, None
+    else:
+        # Fetch the address and tag from the CSV file
+        return get_address_from_csv('address.csv', target)
 
 
 def check_coinone_deposit_suspended(currency):
@@ -227,6 +283,15 @@ def check_coinone_deposit_suspended(currency):
     except Exception as e:
         print(f"An error occurred: {e}")
         return None
+
+
+def get_withdraw_integer_multiple(exchange, currency, network):
+    currencies = exchange.fetch_currencies()
+    if currency in currencies:
+        for net in currencies[currency]['info']['networkList']:
+            if net['network'] == network:
+                return Decimal(net['withdrawIntegerMultiple'])
+    return None
 
 
 fx_rate = None

@@ -6,29 +6,29 @@ coinone_tradeable_symbols = ['TNSR/KRW', 'APP/KRW', 'STRK/KRW', 'STG/KRW', 'ALGO
                              'XRP/KRW', 'NTRN/KRW', 'KAVA/KRW', 'CTSI/KRW', 'CHZ/KRW', 'SAND/KRW', 'ATOM/KRW', 'ARKM/KRW', 'IQ/KRW', 'KLAY/KRW', 'FORTH/KRW', 'CLV/KRW', 'SKL/KRW', 'XEC/KRW', 'CELO/KRW', 'PROM/KRW', 'HVH/KRW', 'ZIL/KRW', '1INCH/KRW', 'UOS/KRW', 'AXS/KRW', 'MEME/KRW', 'WAXL/KRW', 'EOS/KRW', 'FNCY/KRW', 'BORA/KRW', 'RUNE/KRW', 'UNI/KRW', 'MNR/KRW', 'NPT/KRW', 'MNT/KRW', 'MANTA/KRW', 'CKB/KRW', 'XTZ/KRW', 'ONIT/KRW', 'HIBS/KRW', 'ERN/KRW', 'KNC/KRW', 'FNSA/KRW', 'MAV/KRW', 'EVER/KRW', 'PHA/KRW', 'CETUS/KRW', 'TON/KRW', 'MAP/KRW', 'FLOW/KRW', 'AVAX/KRW', 'FTM/KRW', 'TEMCO/KRW', 'NEXT/KRW', 'DOT/KRW', 'SLN/KRW', 'ZEUS/KRW', 'HFT/KRW', 'COMP/KRW', 'SPA/KRW', 'MTL/KRW', 'VET/KRW', 'NEON/KRW', 'AGIX/KRW', 'ALT/KRW', 'BNT/KRW', 'DAO/KRW', 'OGN/KRW', 'ARPA/KRW', 'GRND/KRW', 'SOL/KRW', 'BNB/KRW', 'FET/KRW', 'DRC/KRW', 'ETC/KRW', 'SEILOR/KRW', 'DYDX/KRW', 'ETH/KRW', 'FLUX/KRW', 'NEO/KRW', 'PRCL/KRW', 'SUSHI/KRW', 'NAVX/KRW', 'COS/KRW', 'DAD/KRW', 'MBX/KRW', 'PIB/KRW', 'TIDE/KRW', 'AEVO/KRW', 'MBL/KRW', 'CYBER/KRW', 'SNX/KRW', 'RNDR/KRW', 'GALA/KRW', 'SNT/KRW', 'HUNT/KRW', 'FXS/KRW', 'OP/KRW', 'CRO/KRW', 'USDC/KRW', 'CRV/KRW', 'CRU/KRW', 'INJ/KRW', 'RPL/KRW', 'DMAIL/KRW', 'CBK/KRW', 'KAI/KRW', 'HIGH/KRW', 'RON/KRW', 'USDT/KRW', 'IMX/KRW', 'MEV/KRW', 'DATA/KRW', 'KAS/KRW', 'MVC/KRW', 'BEAM/KRW', 'AMO/KRW', 'WNCG/KRW', 'ORBS/KRW', 'AMP/KRW', 'RDNT/KRW', 'ILV/KRW', 'LBL/KRW', 'EDU/KRW', 'ORCA/KRW', 'HIFI/KRW', 'NFT/KRW', 'NFP/KRW', 'TRX/KRW', 'LBR/KRW']
 
 
-def is_futures_tradable(exchange, target_currency):
-    """
-    Check if a target currency is tradable in the Binance Futures market with a /USDT pair.
+# def is_futures_tradable(exchange, target_currency):
+#     """
+#     Check if a target currency is tradable in the Binance Futures market with a /USDT pair.
 
-    :param exchange: The exchange instance (e.g., ccxt.binance()) configured for futures trading.
-    :param target_currency: The target currency to check (e.g., 'BTC').
-    :return: True if the /USDT pair for the target currency is tradable, False otherwise.
-    """
-    try:
-        # Fetch the list of futures markets
-        markets = exchange.load_markets()
+#     :param exchange: The exchange instance (e.g., ccxt.binance()) configured for futures trading.
+#     :param target_currency: The target currency to check (e.g., 'BTC').
+#     :return: True if the /USDT pair for the target currency is tradable, False otherwise.
+#     """
+#     try:
+#         # Fetch the list of futures markets
+#         markets = exchange.load_markets()
 
-        # Construct the trading pair symbol for futures market
-        symbol = target_currency + "/USDT"
+#         # Construct the trading pair symbol for futures market
+#         symbol = target_currency + "/USDT"
 
-        # Check if the symbol is available in the futures markets
-        if symbol in markets:
-            return True
-        else:
-            return False
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        return False
+#         # Check if the symbol is available in the futures markets
+#         if symbol in markets:
+#             return True
+#         else:
+#             return False
+#     except Exception as e:
+#         print(f"An error occurred: {e}")
+#         return False
 
 
 def fetch_tradable_pairs(exchange):
@@ -42,21 +42,28 @@ def fetch_tradable_pairs(exchange):
     return list(markets.keys())
 
 
-def is_futures_tradable(exchange, target_currency):
+def is_futures_tradable(target_currency):
     """
     Checks if the target currency's /USDT pair is tradable on both Binance Spot and Futures markets.
 
-    :param exchange: The exchange instance (e.g., ccxt.binance()) configured for futures trading.
+    :param binance_spot: The exchange instance (e.g., ccxt.binance()) configured for spot trading.
+    :param binance_futures: The exchange instance (e.g., ccxt.binance()) configured for futures trading.
     :param target_currency: The target currency to check (e.g., 'BTC').
     :return: A tuple with boolean indicating if tradable and the market ID if tradable.
     """
     pair = target_currency + '/USDT'
     try:
+        # Load spot markets
         spot_markets = binance.load_markets()
+        # Load futures markets
         futures_markets = binance_futures.load_markets()
 
-        is_spot_tradable = pair in spot_markets
-        is_futures_tradable = pair in futures_markets
+        print(futures_markets[pair]['future'])
+
+        # Check if the pair is tradable on both spot and futures markets
+        is_spot_tradable = pair in spot_markets and spot_markets[
+            pair]['active'] and spot_markets[pair]['spot']
+        is_futures_tradable = pair in futures_markets and futures_markets[pair]['future']
         market_id = futures_markets[pair]['id'] if is_futures_tradable else None
 
         return is_spot_tradable and is_futures_tradable, market_id
