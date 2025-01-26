@@ -6,6 +6,7 @@ from safety import *
 from symbols import *
 import csv
 import traceback
+from coinone_order import *
 
 
 def fetch_minimums(currency):
@@ -245,7 +246,7 @@ def comprehensive_withdraw_test():
         csv_reader = csv.reader(file)
         next(csv_reader)  # Skip the header row
         for row in csv_reader:
-            withdraw_test_cycle(row)
+            buy_order, withdrawal, sell_order = withdraw_test_cycle(row)
 
         pass
 
@@ -307,23 +308,34 @@ def run_test():
     # buy_order = buy_minimum_amount("XRP")
     # print(buy_order)
 
-    currency = "TRX"
+    # currency = "XRP"
+    print(determine_medium(1300))
+    # print(calc_price_diff("BTC", coinone, binance, 1300))
 
-    # print(fetch_minimums(currency))
+    # # print(fetch_minimums(currency))
     # buy_order = buy_minimum_amount(currency)
     # print(buy_order, end="\n\n")
 
     # address, tag, network = fetch_deposit_address(coinone, currency, True)
 
     # withdrawal = withdraw(binance, binance_master, currency, 100, address, tag, network)
-    # # print(withdrawal, end="\n\n")
+    # print(withdrawal, end="\n\n")
     # withdrawal_id = withdrawal["id"]
     # print(withdrawal_id)
-    # # print(address, tag, network)
-    # wait_for_coinone_deposit_completion(currency, withdrawal_id)
-    # # deposit_status = wait_for_coinone_deposit_completion(currency, withdrawal_id)
-    order_details = try_target_sell(currency)
-    print(order_details)
+    # # # print(address, tag, network)
+    # # wait_for_coinone_deposit_completion(currency, withdrawal_id)
+    # deposit_status = wait_for_coinone_deposit_completion(currency, withdrawal_id)
+    # print(deposit_status)
+    # order_details = try_target_sell(currency)
+    # print(order_details)
+    # order_details = coinone_sell(currency, "KRW", 100)
+    # order_details = try_target_sell(currency)
+    # print(order_details)
+
+    """
+    TODO: try_target_sell 수정하기
+    """
+
     # print("Withdrawal Complete")
     # print(deposit_status)
 

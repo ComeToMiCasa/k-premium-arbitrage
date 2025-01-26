@@ -1,6 +1,8 @@
-import ccxt
 import concurrent.futures
+
+import ccxt
 import requests
+
 from exchanges import *
 
 
@@ -39,7 +41,7 @@ def is_futures_tradable(target_currency):
         return False, None
 
 
-def is_currency_depositable(currencies_info, currency):
+def is_currency_depositable_2(currencies_info, currency):
     """
     Checks if a given currency is depositable based on provided currency information.
 
@@ -50,7 +52,8 @@ def is_currency_depositable(currencies_info, currency):
     if currency in currencies_info:
         return currencies_info[currency]["deposit"]
     else:
-        print(f"Currency {currency} is not available in the provided information.")
+        print(
+            f"Currency {currency} is not available in the provided information.")
         return False
 
 
@@ -118,7 +121,7 @@ def safety_check(target, network_data):
         print(f"Withdrawal for {target} is suspended on Binance.")
         return False
 
-    if not is_currency_depositable(coinone, target):
+    if not is_currency_depositable_2(coinone, target):
         print(f"Deposit for {target} is suspended on Coinone.")
         return False
 

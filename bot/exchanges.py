@@ -1,7 +1,7 @@
-from dotenv import load_dotenv
 import os
-import ccxt
 
+import ccxt
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -17,8 +17,9 @@ binance_futures_test_api_key = os.getenv("BINANCE_FUTURES_TEST_API_KEY")
 binance_futures_test_api_secret = os.getenv("BINANCE_FUTURES_TEST_API_SECRET")
 upbit_api_key = os.getenv("UPBIT_API_KEY")
 upbit_api_secret = os.getenv("UPBIT_API_SECRET")
-coinone_api_key = os.getenv("COINONE_API_KEY")
-coinone_api_secret = os.getenv("COINONE_API_SECRET")
+# 대전일 경우 DJ, 아니면 빼고
+coinone_api_key = os.getenv("COINONE_DJ_API_KEY")
+coinone_api_secret = os.getenv("COINONE_DJ_API_SECRET")
 
 alphavantage_api_key = os.getenv("ALPHAVNTAGE_API_KEY")
 
@@ -53,11 +54,11 @@ transfer_mediums = {
     #     "address": "iota1qpc6jdgmcuezuv3ca25r28qwmzsjayyme7rwlyajw30yqahrrph7q8qepfe",
     #     "tag": "",
     # },
-    "WAVES": {
-        "network": "WAVES",
-        "address": "3P8ac9LqudVdmSXthj8m5sh2GN8NeVQ4KdH",
-        "tag": "",
-    },
+    # "WAVES": {
+    #     "network": "WAVES",
+    #     "address": "3P8ac9LqudVdmSXthj8m5sh2GN8NeVQ4KdH",
+    #     "tag": "",
+    # },
     "ZIL": {
         "network": "ZIL",
         "address": "zil19en24ze0mp6l3ytsxdvzvqklkfksdjxsd2fscv",

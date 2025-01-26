@@ -57,9 +57,9 @@ def call_coinone_api(url, method, data, version=2):
 
     # Check for errors in the response
     if data.get("result") != "success":
-        print(f"Error during API call: {data.get('errorMessage')}")
-        print(data)
-        return None
+        print(f"Error during API call: {data}")
+        error_code = data.get("error_code" if version == 2 else "errorCode", "-1")
+        raise Exception(f"Coinone API Error: {error_code}")
 
     # Return the response data
     return data

@@ -1,8 +1,11 @@
-from order import *
+import sys
+import traceback
+
+from coinone_order import *
 from fetch_data import *
 from logger import *
+from order import *
 from safety import *
-import traceback
 
 
 class State:
@@ -61,9 +64,9 @@ def determine_target(fx_rate: float, network_data):
 
     # Fetch all necessary data before the loop
     coinone_markets = coinone.load_markets()
-    binance_markets = binance.load_markets()
+    binance_markets = binance_master.load_markets()
     binance_futures_markets = binanceusdm.load_markets()
-    binance_currencies = binance.fetch_currencies()
+    binance_currencies = binance_master.fetch_currencies()
     coinone_currencies = coinone.fetch_currencies()
 
     for premium in premiums:
@@ -128,7 +131,9 @@ def try_medium_buy(medium: str):
         # order_details = buy(coinone, medium, "KRW", BUY_PERCENTAGE)
         order_details = coinone_buy(medium, "KRW", BUY_PERCENTAGE)
         if not order_details:
-            return None
+            # return None
+            raise RuntimeError(
+                "Error in try_medium_buy: failed to place buy order")
 
         # medium_buy_order = order_details["order"]
         # medium_buy_order_id = medium_buy_order["id"]
@@ -140,9 +145,9 @@ def try_medium_buy(medium: str):
         # return fulfilled_order_details
         return order_details
     except Exception as e:
-        print(f"An error occurred in try_medium_buy: {e}")
-        traceback.print_exc()
-        return None
+        # print(f"An error occurred in try_medium_buy: {e}")
+        # traceback.print_exc()
+        raise
 
 
 def try_target_short(exchange, target: str, leverage: int):
@@ -215,12 +220,16 @@ def try_target_withdraw(target: str):
                 fetch_deposit_address(coinone, target, is_fetch=True)
             )
 
+            print(target_withdraw_address, target_withdraw_tag, network)
+            # return
+            coinone_original_balance = fetch_balance(coinone, target)
             # Make the withdraw request
             target_withdrawal = withdraw(
                 binance,
+                binance_master,
                 target,
                 100,
-                target_withdraw_address,
+                address=target_withdraw_address,
                 tag=target_withdraw_tag,
                 network=network,
             )
@@ -232,8 +241,8 @@ def try_target_withdraw(target: str):
             target_withdrawal_id = target_withdrawal["id"]
 
             # Wait until the withdrawal is complete
-            wait_for_withdrawal_completion(
-                binance, coinone, target, target_withdrawal_id
+            wait_for_withdrawal_to_coinone_completion(
+                target, target_withdrawal_id
             )
 
             return True
@@ -244,9 +253,9 @@ def try_target_withdraw(target: str):
                 return False
             return True
     except Exception as e:
-        print(f"An error occurred in try_target_withdraw: {e}")
-        traceback.print_exc()
-        return False
+        print(f"An error occurred in try_target_withdraw")
+        # traceback.print_exc()
+        raise
 
 
 def try_target_sell(target: str):
@@ -258,12 +267,13 @@ def try_target_sell(target: str):
     """
     try:
         # Place market sell order for the target currency.
-        order_details = sell(coinone, target, "KRW", 100)
+        # order_details = sell(coinone, target, "KRW", 100)
+        order_details = coinone_sell(target, "KRW", 100)
         if not order_details:
             return None
 
         target_sell_order = order_details["order"]
-        target_sell_order_id = target_sell_order["id"]
+        target_sell_order_id = target_sell_order["order_id"]
 
         # Wait until the order is fulfilled (or cancelled).
         # fulfilled_order_details = wait_for_order_fulfillment(
@@ -274,8 +284,9 @@ def try_target_sell(target: str):
         return order_details
     except Exception as e:
         print(f"An error occurred in try_target_sell: {e}")
-        traceback.print_exc()
-        return None
+        # traceback.print_exc()
+        # return None
+        raise
 
 
 def try_medium_sell(medium: str):
@@ -303,8 +314,9 @@ def try_medium_sell(medium: str):
         return order_details
     except Exception as e:
         print(f"An error occurred in try_medium_sell: {e}")
-        traceback.print_exc()
-        return None
+        # traceback.print_exc()
+        # return None
+        raise
 
 
 def determine_medium(fx_rate):
@@ -341,15 +353,25 @@ def try_medium_withdraw(medium: str):
 
         medium_balance = fetch_balance(coinone, medium)
 
-        withdrawal_fee = fetch_coinone_currency_withdraw_fee(medium)
+        withdrawal_fee, max_precision = fetch_coinone_currency_withdraw_fee_and_precision(
+            medium)
+
+        print(medium_balance, withdrawal_fee, max_precision)
+
+        return
 
         # Make the withdraw request.
-        medium_withdrawal = withdraw_from_coinone(
-            medium,
-            medium_balance - withdrawal_fee,
-            medium_withdraw_address,
-            medium_withdraw_tag,
-        )
+        try:
+            medium_withdrawal = withdraw_from_coinone(
+                medium,
+                medium_balance - withdrawal_fee,
+                max_precision,
+                medium_withdraw_address,
+                medium_withdraw_tag,
+            )
+        except Exception as e:
+            print("Error in withdraw_from_coinone")
+            raise
 
         # Return the withdrawal status.
         if medium_withdrawal is None:
@@ -358,7 +380,8 @@ def try_medium_withdraw(medium: str):
         medium_withdrawal_id = medium_withdrawal["id"]
 
         # Wait until the withdrawal is complete.
-        wait_for_withdrawal_completion(coinone, binance, medium, medium_withdrawal_id)
+        wait_for_withdrawal_completion(
+            coinone, binance, medium, medium_withdrawal_id)
 
         return True
     except Exception as e:
@@ -393,10 +416,12 @@ def adjust_and_hedge(target, leverage):
             if buy_details:
                 print("Spot buy order details:", buy_details)
             else:
-                print("Failed to place the spot buy order.")
+                raise RuntimeError(
+                    f"Error in buy_spot: Failed to place {target} spot buy order")
         except Exception as e:
-            print(f"An error occurred in buy_spot: {e}")
-            traceback.print_exc()
+            # print(f"An error occurred in buy_spot: {e}")
+            raise
+            # traceback.print_exc()
 
     def short_futures():
         """
@@ -409,10 +434,12 @@ def adjust_and_hedge(target, leverage):
             if short_details:
                 print("Futures short order details:", short_details)
             else:
-                print("Failed to place the futures short order.")
+                raise RuntimeError(
+                    f"Error in short_futures: Failed to place {target} short order")
         except Exception as e:
-            print(f"An error occurred in short_futures: {e}")
-            traceback.print_exc()
+            # print(f"An error occurred in short_futures: {e}")
+            raise
+            # traceback.print_exc()
 
     # Create threads for buying and shorting
     buy_thread = threading.Thread(target=buy_spot)
@@ -451,10 +478,13 @@ def sell_and_close(target):
             if sell_details:
                 print("Coinone sell order details:", sell_details)
             else:
-                print("Failed to place the sell order in Coinone.")
+                # print("Failed to place the sell order in Coinone.")
+                raise RuntimeError(
+                    f"Error in sell_target_in_coinone: Failed to place {target} spot sell order")
         except Exception as e:
-            print(f"An error occurred in sell_target_in_coinone: {e}")
-            traceback.print_exc()
+            # print(f"An error occurred in sell_target_in_coinone: {e}")
+            # traceback.print_exc()
+            raise
 
     def close_short_in_binance():
         """
@@ -466,10 +496,13 @@ def sell_and_close(target):
             if close_details:
                 print("Binance Futures close short order details:", close_details)
             else:
-                print("Failed to close the short position in Binance Futures.")
+                # print("Failed to close the short position in Binance Futures.")
+                raise RuntimeError(
+                    f"Error in close_short_in_binance: Failed to close {target} short order")
         except Exception as e:
-            print(f"An error occurred in close_short_in_binance: {e}")
-            traceback.print_exc()
+            # print(f"An error occurred in close_short_in_binance: {e}")
+            raise
+            # traceback.print_exc()
 
     # Create threads for selling and closing the short position
     sell_thread = threading.Thread(target=sell_target_in_coinone)
@@ -512,7 +545,21 @@ def read_address_network_csv(file_path):
     return address_network_info
 
 
-leverage = 5
+def confirm_continue():
+    """Pauses execution and exits if the user chooses not to continue."""
+    answer = input("Continue? (Y/N): ").strip().lower()
+    if answer != "y":
+        print("Exiting...")
+        sys.exit()
+
+
+leverage = 1
+
+# TODO: medium 정할 때 프리미엄이 target보다 낮아야함.
+# TODO: medium manual transfer도 가능하게
+
+
+POLLING_INTERVAL = 60
 
 
 def cycle(state: State, csv_file_data):
@@ -522,34 +569,132 @@ def cycle(state: State, csv_file_data):
     :param state: The current state of balances in KRW and USDT.
     :return: A dictionary with the order details for target buy, target sell, medium buy, and medium sell.
     """
-    if fx_rate is None:
-        return None
+    # if fx_rate is None:
+    #     print("Error in fx_rate")
+    #     return None
+
+    # TODO: MUST CHANGE
+    fx_rate = fetch_fx_rate()
+    print(f"fx_rate: {fx_rate}")
+
+    confirm_continue()
+
+    original_balance = fetch_balance(binance_master, "USDT")
+    print(original_balance)
+
+    # TODO: cycle 시작시에 target, medium 프리미엄 비교해서 할지 말지 여부 결정
+    # TODO: target premium 기록해놓고 medium premium이 작아질때 transfer
 
     # Determine the target currency with the highest premium.
     target_data = determine_target(fx_rate, csv_file_data)
     target = target_data[0]
 
-    # Try to buy, withdraw, and sell the target currency.
-    # target_buy_details = try_target_buy(target, binance)
-
-    # Hedge the position
-    target_buy_details, target_hedge_details = adjust_and_hedge(target, leverage)
-    target_withdraw_success = try_target_withdraw(target)
-    # target_sell_details = try_target_sell(target)
-    # Sell and close positions
-    target_sell_details, target_close_details = sell_and_close(target)
+    # ex) ('KNC', 0.1990384615384616, 46.127105802656224)
 
     # Determine the medium currency with the least transfer loss.
     medium_data = determine_medium(fx_rate)
     medium = medium_data[0]
 
-    # TODO: Maybe change to using just USDT or USDC?
-    # medium = "USDT"
+    expected_return = target_data[2] - medium_data[2]
+
+    print(f"Target: {target_data}")
+    print(f"Medium: {medium_data}")
+    # return
+
+    print(f"expected return: {expected_return}")
+
+    confirm_continue()
+    # return
+
+    if expected_return < 0:
+        time.sleep(POLLING_INTERVAL)
+        return
+
+    # print(target_data, medium_data, expected_return)
+
+    # Try to buy, withdraw, and sell the target currency.
+    # target_buy_details = try_target_buy(target, binance)
+
+    # Hedge the position
+    try:
+        target_buy_details, target_hedge_details = adjust_and_hedge(
+            target, leverage)
+
+        print(f"Compete target BUY with details: {target_buy_details}")
+        print(f"Compete target SHORT with details: {target_hedge_details}")
+    except Exception as e:
+        print("Error in target BUY and HEDGE")
+        print(e)
+        return
+
+    print("Waiting...")
+    time.sleep(10)
+    print("Wait end")
+
+    confirm_continue()
+
+    try:
+        target_withdraw_success = try_target_withdraw(target)
+        print(
+            f"Compete target WITHDRAW with details: {target_withdraw_success}")
+    except Exception as e:
+        print("Error in target WITHDRAW")
+        print(e)
+        return
+
+    # return
+
+    # target_sell_details = try_target_sell(target)
+    try:
+        # Sell and close positions
+        target_sell_details, target_close_details = sell_and_close(target)
+        print(f"Compete target SELL with details: {target_sell_details}")
+        print(f"Compete target CLOSE with details: {target_close_details}")
+    except Exception as e:
+        print("Error in target SELL and CLOSE")
+        print(e)
+        return
+
+    confirm_continue()
+
+    # Determine the medium currency with the least transfer loss.
+    medium_data = determine_medium(fx_rate)
+    medium = medium_data[0]
+
+    print(f"Medium: {medium_data}")
+
+    confirm_continue()
 
     # Try to buy, withdraw, and sell the medium currency.
-    medium_buy_details = try_medium_buy(medium)
-    medium_withdraw_success = try_medium_withdraw(medium)
-    medium_sell_details = try_medium_sell(medium)
+    try:
+        medium_buy_details = try_medium_buy(medium)
+    except Exception as e:
+        print("Error in medium BUY")
+        print(e)
+        return
+
+    print(f"Compete medium BUY with details: {medium_buy_details}")
+
+    try:
+        medium_withdraw_success = try_medium_withdraw(medium)
+    except Exception as e:
+        print("Error in medium WITHDRAW")
+        print(e)
+        return
+
+    print(f"Compete medium WITHDRAW with details: {medium_withdraw_success}")
+
+    try:
+        medium_sell_details = try_medium_sell(medium)
+    except Exception as e:
+        print("Error in medium SELL")
+        print(e)
+        return
+
+    print(f"Compete medium SELL with details: {medium_sell_details}")
+
+    final_balance = fetch_balance(binance_master, "USDT")
+    print(original_balance, final_balance)
 
     return {
         "target_buy": target_buy_details,
@@ -582,4 +727,9 @@ def go():
 if __name__ == "__main__":
     # print(fetch_deposit_address(coinone, "BTC", False))
     # print(is_currency_depositable("ABL"))
-    print(determine_target(1300))
+    # print(determine_target(1300))
+    fx_rate = 1300
+    csv_file_data = read_address_network_csv("address_network.csv")
+    state = State(krw_balance=0, usdt_balance=0)
+    cycle(state, csv_file_data)
+    pass

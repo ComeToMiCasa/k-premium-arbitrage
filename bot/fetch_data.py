@@ -1,18 +1,19 @@
-import ccxt
-from dotenv import load_dotenv
-import os
-import requests
 import concurrent.futures
-import time
 import json
+import os
 import threading
-from address import get_address_from_csv
-from decimal import Decimal
+import time
 import traceback
+from decimal import Decimal
 
-from symbols import coinone_tradeable_symbols
-from exchanges import *
+import ccxt
+import requests
+from dotenv import load_dotenv
+
+from address import get_address_from_csv
 from coinone_api import *
+from exchanges import *
+from symbols import coinone_tradeable_symbols
 
 # Load environment variables from .env file
 load_dotenv()
@@ -79,7 +80,7 @@ def calc_price_diff(target: str = "BTC", ex_a=None, ex_b=None, fx_rate: float = 
     ex_a_price_krw = fetch_exchange_price(ex_a, target + "/KRW")
     ex_b_price = fetch_exchange_price(ex_b, target + "/USDT")
 
-    # print(ex_a_price_krw, ex_b_price, fx_rate)
+    # print(target, ex_a_price_krw, ex_b_price, fx_rate)
 
     ex_a_price = ex_a_price_krw / fx_rate
 
@@ -107,11 +108,11 @@ def conc_calc_transfer_loss(fx_rate: float):
     def fetch_and_calc(medium):
         try:
             price_diff, price_diff_percent, _, _, _, _ = calc_price_diff(
-                medium, coinone, binance, fx_rate
+                medium, coinone, binance_master, fx_rate
             )
             return (medium, price_diff, price_diff_percent)
         except Exception as e:
-            print(f"Error in fetch_and_calc: {e}")
+            print(f"Error in fetch_and_calc with {medium}: {e}")
             traceback.print_exc()
 
     results = []
@@ -125,6 +126,7 @@ def conc_calc_transfer_loss(fx_rate: float):
             results.append(result)
 
     results.sort(key=lambda x: x[2])
+
     return results
 
 
@@ -143,14 +145,14 @@ def conc_find_highest_premium(fx_rate: float, currencies, ex=coinone):
 
         try:
             price_diff, price_diff_percent, _, _, _, _ = calc_price_diff(
-                target, ex, binance, fx_rate
+                target, ex, binance_master, fx_rate
             )
             premium = (symbol, price_diff, price_diff_percent)
             return premium
         except Exception as e:
-            print(f"Error in calc_premium_for_symbol: {e}")
-            traceback.print_exc()
-            return None
+            print(f"Error in calc_premium_for_symbol with {symbol}: {e}")
+            # traceback.print_exc()
+            return (symbol, -1, -1)
 
     premiums = []
 
@@ -166,7 +168,8 @@ def conc_find_highest_premium(fx_rate: float, currencies, ex=coinone):
                 if premium:
                     premiums.append(premium)
             except Exception as e:
-                print(f"Error processing {symbol} in calc_premium_for_symbol: {e}")
+                print(
+                    f"Error processing {symbol} in calc_premium_for_symbol: {e}")
                 traceback.print_exc()
 
     return sorted(premiums, key=lambda x: x[2], reverse=True)
@@ -190,7 +193,8 @@ def fetch_available_networks(exchange, currency):
             ]
             return networks
         else:
-            print(f"Currency {currency} not found or no network information available.")
+            print(
+                f"Currency {currency} not found or no network information available.")
             return []
     except Exception as e:
         print(f"Error in fetch_available_networks: {e}")
@@ -248,7 +252,8 @@ def fetch_deposit_address(exchange, target, is_fetch=True):
             tag = deposit_info.get("tag", None)  # Also known as memo
 
             # TODO: get network from csv
-            _, _, network = get_address_from_csv("target_currency_data.csv", target)
+            _, _, network = get_address_from_csv(
+                "target_currency_data.csv", target)
             # Return a tuple containing the address, tag
             return address, tag, network
         except ccxt.BaseError as e:
@@ -305,7 +310,7 @@ def fetch_coinone_currency_data(currency):
     return response
 
 
-def fetch_coinone_currency_withdraw_fee(currency):
+def fetch_coinone_currency_withdraw_fee_and_precision(currency):
     """
     Fetches the withdrawal fee for a specified currency from Coinone.
 
@@ -316,7 +321,10 @@ def fetch_coinone_currency_withdraw_fee(currency):
     if data:
         for item in data["currencies"]:
             if item["symbol"] == currency:
-                return float(item["withdrawal_fee"])
+                return (
+                    float(item["withdrawal_fee"]),
+                    int(item["max_precision"])
+                )
     return None
 
 

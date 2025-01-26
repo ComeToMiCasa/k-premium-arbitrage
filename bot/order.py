@@ -1,18 +1,19 @@
+import base64
+import hashlib
+import hmac
+import json
+import math
 import time
-from fetch_data import *
+import traceback
+import uuid
+from decimal import ROUND_DOWN, Decimal, getcontext
+
+import requests
+
 from balance import *
 from exchanges import *
-from decimal import Decimal, getcontext, ROUND_DOWN
+from fetch_data import *
 from utils import *
-import traceback
-import requests
-import time
-import hmac
-import hashlib
-import base64
-import json
-import uuid
-import math
 
 
 def round_to_significant_digits(value, sig_digits):
@@ -51,7 +52,8 @@ def buy(exchange, target, quote, percentage):
 
         # Check if the symbol is available
         if symbol not in markets:
-            print(f"Error in buy: Symbol {symbol} is not available on the exchange.")
+            print(
+                f"Error in buy: Symbol {symbol} is not available on the exchange.")
             return None
 
         # Get the market details for the symbol
@@ -72,7 +74,8 @@ def buy(exchange, target, quote, percentage):
             .log10()
             .to_integral_value(rounding=ROUND_DOWN)
         )
-        cost = cost.quantize(Decimal("1e{0}".format(exponent)), rounding=ROUND_DOWN)
+        cost = cost.quantize(
+            Decimal("1e{0}".format(exponent)), rounding=ROUND_DOWN)
 
         print("cost", float(cost))
 
@@ -94,60 +97,84 @@ def buy(exchange, target, quote, percentage):
 
 
 def coinone_buy(currency, quote, percentage):
-    # Step 1: Fetch the quote balance
-    quote_balance = fetch_balance(coinone, quote)
+    try:
+        # Step 1: Fetch the quote balance
+        quote_balance = fetch_balance(coinone, quote)
 
-    # Step 2: Calculate the amount to spend, slightly less than the percentage to account for fees
-    # Coinone fees are 0.2%, but add 0.1% more for safety
-    safety_margin = 99.7
-    if percentage > safety_margin:
-        percentage = safety_margin
+        # Step 2: Calculate the amount to spend, slightly less than the percentage to account for fees
+        safety_margin = 99.7
+        if percentage > safety_margin:
+            percentage = safety_margin
 
-    # Step 3: Calculate the amount to spend
-    amount_to_spend = quote_balance * (percentage / 100)
+        # Step 3: Calculate the amount to spend
+        amount_to_spend = quote_balance * (percentage / 100)
 
-    # Step 4: Place a market buy order
-    url = "https://api.coinone.co.kr/v2.1/order/"
-    nonce = str(uuid.uuid4())
+        # Step 4: Place a market buy order
+        url = "https://api.coinone.co.kr/v2.1/order/"
+        nonce = str(uuid.uuid4())
 
-    payload = {
-        "access_token": coinone_api_key,
-        "nonce": nonce,
-        "side": "BUY",
-        "quote_currency": quote,
-        "target_currency": currency,
-        "type": "MARKET",
-        "amount": str(amount_to_spend),
-    }
+        payload = {
+            "access_token": coinone_api_key,
+            "nonce": nonce,
+            "side": "BUY",
+            "quote_currency": quote,
+            "target_currency": currency,
+            "type": "MARKET",
+            "amount": str(amount_to_spend),
+        }
 
-    encoded_payload = base64.b64encode(json.dumps(payload).encode("utf-8"))
-    signature = hmac.new(
-        coinone_api_secret.encode("utf-8"), encoded_payload, hashlib.sha512
-    ).hexdigest()
+        encoded_payload = base64.b64encode(json.dumps(payload).encode("utf-8"))
+        signature = hmac.new(
+            coinone_api_secret.encode("utf-8"), encoded_payload, hashlib.sha512
+        ).hexdigest()
 
-    headers = {
-        "Content-Type": "application/json",
-        "X-COINONE-PAYLOAD": encoded_payload,
-        "X-COINONE-SIGNATURE": signature,
-    }
+        headers = {
+            "Content-Type": "application/json",
+            "X-COINONE-PAYLOAD": encoded_payload,
+            "X-COINONE-SIGNATURE": signature,
+        }
 
-    response = requests.post(url, headers=headers, data=encoded_payload)
+        response = requests.post(url, headers=headers, data=encoded_payload)
 
-    data = response.json()
+        # Check for HTTP errors
+        response.raise_for_status()  # Raise HTTPError for bad responses (4xx, 5xx)
 
-    # Extract order details
-    average_price = data.get("average", None)
-    quantity = data.get("filled", None)
-    total_cost = data.get("cost", None)
-    fee = data.get("fee", {}).get("cost", None)
+        # Parse JSON response
+        data = response.json()
 
-    return {
-        "order": data,
-        "average_price": average_price,
-        "quantity": quantity,
-        "total_cost": total_cost,
-        "fee": fee,
-    }
+        # Check if the API returned an error
+        if data.get("result") == "error":
+            error_code = data.get("error_code", "Unknown code")
+            error_msg = data.get("error_msg", "No error message provided")
+            raise RuntimeError(
+                f"Order failed: [Error {error_code}] {error_msg}")
+
+        # Extract order details
+        average_price = data.get("average", None)
+        quantity = data.get("filled", None)
+        total_cost = data.get("cost", None)
+        fee = data.get("fee", {}).get("cost", None)
+
+        return {
+            "order": data,
+            "average_price": average_price,
+            "quantity": quantity,
+            "total_cost": total_cost,
+            "fee": fee,
+        }
+
+    except requests.exceptions.HTTPError as http_err:
+        print(f"HTTP error occurred: {http_err}")
+        raise RuntimeError(
+            "Failed to place the order due to an HTTP error.") from http_err
+    except requests.exceptions.RequestException as req_err:
+        print(f"Request error occurred: {req_err}")
+        raise RuntimeError(
+            "Failed to place the order due to a network issue.") from req_err
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        raise RuntimeError(
+            "An unexpected error occurred while placing the order.") from e
 
 
 def sell(exchange, target, quote, percentage):
@@ -175,7 +202,8 @@ def sell(exchange, target, quote, percentage):
 
         # Check if the symbol is available
         if symbol not in markets:
-            print(f"Error in sell: Symbol {symbol} is not available on the exchange.")
+            print(
+                f"Error in sell: Symbol {symbol} is not available on the exchange.")
             return None
 
         # Get the market details for the symbol
@@ -246,7 +274,8 @@ def short(exchange, target, percentage, leverage):
 
         # Check if the symbol is available
         if symbol not in markets:
-            print(f"Error in short: Symbol {symbol} is not available on the exchange.")
+            print(
+                f"Error in short: Symbol {symbol} is not available on the exchange.")
             return None
 
         # Get the market details for the symbol
@@ -262,10 +291,12 @@ def short(exchange, target, percentage, leverage):
 
         # Adjust the cost to meet the exchange's precision requirements
         precision = market["precision"]["quote"]
-        cost = cost.quantize(Decimal("1e-{0}".format(precision)), rounding=ROUND_DOWN)
+        cost = cost.quantize(
+            Decimal("1e-{0}".format(precision)), rounding=ROUND_DOWN)
 
         # Set leverage for the target symbol
-        exchange.fapiPrivatePostLeverage({"symbol": market["id"], "leverage": leverage})
+        exchange.fapiPrivatePostLeverage(
+            {"symbol": market["id"], "leverage": leverage})
 
         # Fetch the ticker to get the latest price
         ticker = exchange.fetch_ticker(symbol)
@@ -400,7 +431,8 @@ def close_short(exchange, target, quote):
         positions = exchange.fapiPrivateV2GetPositionRisk()
         symbol = target + quote
 
-        position = next((pos for pos in positions if pos["symbol"] == symbol), None)
+        position = next(
+            (pos for pos in positions if pos["symbol"] == symbol), None)
 
         print(position)
 
@@ -416,7 +448,8 @@ def close_short(exchange, target, quote):
 
         # Place a market buy order to cover the short position
         order = exchange.create_market_buy_order(symbol, abs(amount_to_buy))
-        print(f"Market buy order created to close short position: {order['id']}")
+        print(
+            f"Market buy order created to close short position: {order['id']}")
 
         return {
             "order": order,

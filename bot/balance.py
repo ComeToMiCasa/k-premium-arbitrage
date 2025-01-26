@@ -1,14 +1,14 @@
 import base64
 import hashlib
 import hmac
-import time
-from decimal import Decimal, ROUND_DOWN
-import uuid
 import math
+import time
+import uuid
+from decimal import ROUND_DOWN, Decimal
 
-from fetch_data import *
-from coinone_api import *
 from binance_api import *
+from coinone_api import *
+from fetch_data import *
 
 
 def fetch_balance(exchange, currency):
@@ -27,7 +27,8 @@ def fetch_balance(exchange, currency):
         if currency in balance["total"]:
             return balance["total"][currency]
         else:
-            print(f"Error: Currency {currency} is not available in the balance.")
+            print(
+                f"Error: Currency {currency} is not available in the balance.")
             return None
     except Exception as e:
         print(f"An error occurred in fetch_balance: {e}")
@@ -99,17 +100,29 @@ def adjust_balances_to_leverage(spot_exchange, futures_exchange, leverage):
 
     print(spot_balance, futures_balance)
 
-    required_futures_balance = (spot_balance + futures_balance) / (leverage + 1)
-    required_futures_balance = math.floor(required_futures_balance * 10**8) / 10**8
+    required_futures_balance = (
+        spot_balance + futures_balance) / (leverage + 1)
+    required_futures_balance = math.floor(
+        required_futures_balance * 10**8) / 10**8
 
     if required_futures_balance > futures_balance:
         transfer_amount = required_futures_balance - futures_balance
         transfer_amount = math.floor(transfer_amount * 10**8) / 10**8
+
+        if transfer_amount == 0:
+            print(f"Transferred {transfer_amount} USDT from Spot to Futures.")
+            return
+
         transfer_usdt(spot_exchange, "spot", "future", transfer_amount)
         print(f"Transferred {transfer_amount} USDT from Spot to Futures.")
     elif required_futures_balance < futures_balance:
         transfer_amount = futures_balance - required_futures_balance
         transfer_amount = math.floor(transfer_amount * 10**8) / 10**8
+
+        if transfer_amount == 0:
+            print(f"Transferred {transfer_amount} USDT from Spot to Futures.")
+            return
+
         transfer_usdt(spot_exchange, "future", "spot", transfer_amount)
         print(f"Transferred {transfer_amount} USDT from Futures to Spot.")
     else:
@@ -175,7 +188,8 @@ def withdraw(
         print("amount", float(amount))
 
         # Ensure the amount is rounded to the required precision
-        amount = (amount // withdraw_integer_multiple) * withdraw_integer_multiple
+        amount = (amount // withdraw_integer_multiple) * \
+            withdraw_integer_multiple
 
         print("amount", float(amount))
 
@@ -232,63 +246,83 @@ def check_withdrawal_limit_from_coinone(currency):
     return result.get("limit")
 
 
-def withdraw_from_coinone(currency, amount, address, secondary_address=None):
+def withdraw_from_coinone(currency, amount, max_precision, address, secondary_address=None):
     """
     Withdraws a specified amount of a currency from Coinone to a specified address.
 
     :param currency: The currency to withdraw (e.g., 'BTC').
     :param amount: The amount of the currency to withdraw.
+    :param max_precision: The maximum decimal precision for the amount.
     :param address: The address to withdraw to.
     :param secondary_address: Optional secondary address (e.g., memo or tag for certain coins).
     """
-    # Generate a nonce using UUID
-    nonce = str(uuid.uuid4())
+    try:
+        # Generate a nonce using UUID
+        nonce = str(uuid.uuid4())
 
-    # Prepare the payload for the request
-    payload = {
-        "access_token": coinone_api_key,
-        "nonce": nonce,
-        "currency": currency,
-        "amount": str(amount),
-        "address": address,
-    }
+        # Prepare the payload for the request
+        payload = {
+            "access_token": coinone_api_key,
+            "nonce": nonce,
+            "currency": currency,
+            "amount": str(math.floor(amount * 10**max_precision) / 10**max_precision),
+            "address": address,
+        }
 
-    # Include secondary address if provided
-    if secondary_address:
-        payload["secondary_address"] = secondary_address
+        # Include secondary address if provided
+        if secondary_address:
+            payload["secondary_address"] = secondary_address
 
-    # Encode the payload to base64
-    encoded_payload = base64.b64encode(json.dumps(payload).encode("utf-8"))
+        # Encode the payload to base64
+        encoded_payload = base64.b64encode(json.dumps(payload).encode("utf-8"))
 
-    # Generate a signature using HMAC-SHA512
-    signature = hmac.new(
-        coinone_api_secret.encode("utf-8"), encoded_payload, hashlib.sha512
-    ).hexdigest()
+        # Generate a signature using HMAC-SHA512
+        signature = hmac.new(
+            coinone_api_secret.encode("utf-8"), encoded_payload, hashlib.sha512
+        ).hexdigest()
 
-    # Set the headers for the request
-    headers = {
-        "Content-Type": "application/json",
-        "X-COINONE-PAYLOAD": encoded_payload,
-        "X-COINONE-SIGNATURE": signature,
-    }
+        # Set the headers for the request
+        headers = {
+            "Content-Type": "application/json",
+            "X-COINONE-PAYLOAD": encoded_payload,
+            "X-COINONE-SIGNATURE": signature,
+        }
 
-    # Define the URL for the withdrawal endpoint
-    url = "https://api.coinone.co.kr/v2.1/transaction/coin/withdrawal/"
+        # Define the URL for the withdrawal endpoint
+        url = "https://api.coinone.co.kr/v2.1/transaction/coin/withdrawal/"
 
-    # Make the POST request to the Coinone API
-    response = requests.post(url, headers=headers, data=encoded_payload)
+        # Make the POST request to the Coinone API
+        response = requests.post(url, headers=headers, data=encoded_payload)
 
-    # Parse the response data
-    data = response.json()
-    print(data)
+        # Check for HTTP errors
+        response.raise_for_status()
 
-    # Check for errors in the response
-    if data.get("error_code") != "0":
-        print(f"Error during withdrawal: {data.get('errorMessage')}")
-        return None
+        # Parse the response data
+        data = response.json()
 
-    # Return the response data
-    return data
+        # Check for errors in the API response
+        if data.get("error_code") != "0":
+            error_code = data.get("error_code", "Unknown code")
+            error_message = data.get(
+                "errorMessage", "No error message provided")
+            raise RuntimeError(
+                f"Withdrawal failed: [Error {error_code}] {error_message}")
+
+        # Return the response data
+        return data
+
+    except requests.exceptions.HTTPError as http_err:
+        print(f"HTTP error occurred: {http_err}")
+        raise RuntimeError(
+            "Failed to complete the withdrawal due to an HTTP error.") from http_err
+    except requests.exceptions.RequestException as req_err:
+        print(f"Request error occurred: {req_err}")
+        raise RuntimeError(
+            "Failed to complete the withdrawal due to a network issue.") from req_err
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        raise RuntimeError(
+            "An unexpected error occurred while processing the withdrawal.") from e
 
 
 def fetch_withdrawal_status(exchange, currency, withdrawal_id):
@@ -387,7 +421,7 @@ def fetch_binance_master_withdrawal_status(currency, withdrawal_id):
     pass
 
 
-def wait_for_coinone_deposit_completion(currency, withdrawal_id, polling_interval=10):
+def wait_for_coinone_deposit_completion_deprecated(currency, withdrawal_id, polling_interval=10):
     # TODO: Complete
     print("Start")
     while True:
@@ -407,7 +441,8 @@ def wait_for_coinone_deposit_completion(currency, withdrawal_id, polling_interva
                 while True:
                     print("Deposit Cycle")
 
-                    deposit_status = fetch_coinone_deposit_status(currency, txid)
+                    deposit_status = fetch_coinone_deposit_status(
+                        currency, txid)
 
                     if deposit_status:
                         if deposit_status["status"] == "DEPOSIT_SUCCESS":
@@ -438,6 +473,73 @@ def wait_for_coinone_deposit_completion(currency, withdrawal_id, polling_interva
             time.sleep(polling_interval)
 
 
+def check_coinone_deposit_status(currency, original_balance):
+    current_balance = fetch_balance(coinone, currency)
+
+    if current_balance > original_balance:
+        return True
+    else:
+        return False
+
+
+def wait_for_coinone_deposit_completion(currency, original_balance, polling_interval=10):
+    # original_balance = fetch_balance(coinone, currency)
+
+    print("Start wait for coinone deposit completion")
+    while True:
+        if check_coinone_deposit_status(currency, original_balance) is True:
+            return True
+        else:
+            print("Waiting for coinone deposit completion...")
+            time.sleep(polling_interval)
+            continue
+
+
+def wait_for_withdrawal_to_coinone_completion(
+    currency, withdrawal_id, polling_interval=10
+):
+    """
+    Waits for a withdrawal to be completed on one exchange and the corresponding deposit to be credited on another exchange.
+
+    :param from_exchange: The exchange from which the withdrawal is made.
+    :param to_exchange: The exchange to which the deposit is made.
+    :param currency: The currency of the withdrawal and deposit (e.g., 'BTC').
+    :param withdrawal_id: The ID of the withdrawal to check.
+    :param polling_interval: The interval (in seconds) between status checks.
+    """
+    print("Starting wait for withdrawal completion...")
+    while True:
+        # Check withdrawal status on the source exchange
+        withdrawal_status = fetch_withdrawal_status(
+            binance_master, currency, withdrawal_id
+        )
+        if withdrawal_status:
+            status = withdrawal_status["status"]
+            print(f"Current withdrawal status: {status}")
+            if status in ["ok", "completed"]:
+                print("The withdrawal has been completed.")
+                txid = withdrawal_status["txid"]
+
+                # Check deposit status on the destination exchange
+                original_balance = fetch_balance(coinone, currency)
+
+                deposit_status = wait_for_coinone_deposit_completion(
+                    currency, original_balance, polling_interval)
+
+                if deposit_status is True:
+                    print("The deposit has been credited to your account.")
+                    return True
+
+                break
+            elif status == "canceled":
+                print("The withdrawal has been canceled.")
+                break
+        else:
+            print("Failed to retrieve withdrawal status.")
+
+        time.sleep(polling_interval)
+
+
 def wait_for_withdrawal_completion(
     from_exchange, to_exchange, currency, withdrawal_id, polling_interval=10
 ):
@@ -450,6 +552,7 @@ def wait_for_withdrawal_completion(
     :param withdrawal_id: The ID of the withdrawal to check.
     :param polling_interval: The interval (in seconds) between status checks.
     """
+    print("Starting wait for withdrawal completion...")
     while True:
         # Check withdrawal status on the source exchange
         withdrawal_status = fetch_withdrawal_status(
@@ -464,7 +567,8 @@ def wait_for_withdrawal_completion(
 
                 # Check deposit status on the destination exchange
                 while True:
-                    deposit_status = fetch_deposit_status(to_exchange, currency, txid)
+                    deposit_status = fetch_deposit_status(
+                        to_exchange, currency, txid)
                     if deposit_status:
                         deposit_status_str = deposit_status["status"]
                         print(f"Current deposit status: {deposit_status_str}")
