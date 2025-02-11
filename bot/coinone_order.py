@@ -1,5 +1,5 @@
-from coinone_api import *
 from balance import fetch_balance
+from coinone_api import *
 from exchanges import coinone
 
 

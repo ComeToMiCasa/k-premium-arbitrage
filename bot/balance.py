@@ -184,14 +184,14 @@ def withdraw(
             )
             return None
 
-        print(withdraw_integer_multiple)
-        print("amount", float(amount))
+        # print(withdraw_integer_multiple)
+        # print("amount", float(amount))
 
         # Ensure the amount is rounded to the required precision
         amount = (amount // withdraw_integer_multiple) * \
             withdraw_integer_multiple
 
-        print("amount", float(amount))
+        # print("amount", float(amount))
 
         # Transfer the amount to the master account
         transfer_result = transfer_to_master(
@@ -200,6 +200,8 @@ def withdraw(
         if not transfer_result:
             print("Error: Transfer to master account failed.")
             return None
+
+        time.sleep(5)
 
         # Withdraw the funds from the master account
         params = {}
@@ -476,13 +478,15 @@ def wait_for_coinone_deposit_completion_deprecated(currency, withdrawal_id, poll
 def check_coinone_deposit_status(currency, original_balance):
     current_balance = fetch_balance(coinone, currency)
 
+    print(f"Current balance: {current_balance}")
+
     if current_balance > original_balance:
         return True
     else:
         return False
 
 
-def wait_for_coinone_deposit_completion(currency, original_balance, polling_interval=10):
+def wait_for_coinone_deposit_completion(currency, original_balance, polling_interval=5):
     # original_balance = fetch_balance(coinone, currency)
 
     print("Start wait for coinone deposit completion")
@@ -496,7 +500,7 @@ def wait_for_coinone_deposit_completion(currency, original_balance, polling_inte
 
 
 def wait_for_withdrawal_to_coinone_completion(
-    currency, withdrawal_id, polling_interval=10
+    currency, withdrawal_id, polling_interval=5
 ):
     """
     Waits for a withdrawal to be completed on one exchange and the corresponding deposit to be credited on another exchange.
@@ -508,36 +512,94 @@ def wait_for_withdrawal_to_coinone_completion(
     :param polling_interval: The interval (in seconds) between status checks.
     """
     print("Starting wait for withdrawal completion...")
+
+    # Check original balance in coinone
+    original_balance = fetch_balance(coinone, currency)
+    print(f"Original Balance: {original_balance}")
+
+    # Check deposit status on the destination exchange
+    deposit_status = wait_for_coinone_deposit_completion(
+        currency, original_balance, polling_interval)
+
+    if deposit_status is True:
+        print("The deposit has been credited to your account.")
+        return True
+
+    # while True:
+    #     # Check withdrawal status on the source exchange
+    #     withdrawal_status = fetch_withdrawal_status(
+    #         binance_master, currency, withdrawal_id
+    #     )
+    #     if withdrawal_status:
+    #         status = withdrawal_status["status"]
+    #         print(f"Current withdrawal status: {status}")
+    #         if status in ["ok", "completed"]:
+    #             print("The withdrawal has been completed.")
+    #             txid = withdrawal_status["txid"]
+
+    #             # Check deposit status on the destination exchange
+    #             deposit_status = wait_for_coinone_deposit_completion(
+    #                 currency, original_balance, polling_interval)
+
+    #             if deposit_status is True:
+    #                 print("The deposit has been credited to your account.")
+    #                 return True
+
+    #             break
+    #         elif status == "canceled":
+    #             print("The withdrawal has been canceled.")
+    #             break
+    #     else:
+    #         print("Failed to retrieve withdrawal status.")
+
+    #     time.sleep(polling_interval)
+
+
+def check_deposit_status(currency, exchange, original_balance):
+    current_balance = fetch_balance(exchange, currency)
+
+    print(f"Current balance: {current_balance}")
+
+    if current_balance > original_balance:
+        return True
+    else:
+        return False
+
+
+def wait_for_deposit_completion(currency, exchange, original_balance, polling_interval=10):
+    print("Start wait for deposit completion")
     while True:
-        # Check withdrawal status on the source exchange
-        withdrawal_status = fetch_withdrawal_status(
-            binance_master, currency, withdrawal_id
-        )
-        if withdrawal_status:
-            status = withdrawal_status["status"]
-            print(f"Current withdrawal status: {status}")
-            if status in ["ok", "completed"]:
-                print("The withdrawal has been completed.")
-                txid = withdrawal_status["txid"]
-
-                # Check deposit status on the destination exchange
-                original_balance = fetch_balance(coinone, currency)
-
-                deposit_status = wait_for_coinone_deposit_completion(
-                    currency, original_balance, polling_interval)
-
-                if deposit_status is True:
-                    print("The deposit has been credited to your account.")
-                    return True
-
-                break
-            elif status == "canceled":
-                print("The withdrawal has been canceled.")
-                break
+        if check_deposit_status(currency, exchange, original_balance) is True:
+            return True
         else:
-            print("Failed to retrieve withdrawal status.")
+            print("Waiting for deposit completion...")
+            time.sleep(polling_interval)
+            continue
+    pass
 
-        time.sleep(polling_interval)
+
+def wait_for_withdrawal_from_coinone_completion(
+    from_exchange, to_exchange, currency, withdrawal_id, polling_interval=10
+):
+    """
+    Waits for a withdrawal to be completed on one exchange and the corresponding deposit to be credited on another exchange.
+
+    :param from_exchange: The exchange from which the withdrawal is made.
+    :param to_exchange: The exchange to which the deposit is made.
+    :param currency: The currency of the withdrawal and deposit (e.g., 'BTC').
+    :param withdrawal_id: The ID of the withdrawal to check.
+    :param polling_interval: The interval (in seconds) between status checks.
+    """
+    print("Starting wait for withdrawal completion...")
+
+    original_balance = fetch_balance(to_exchange, currency)
+
+    deposit_status = wait_for_deposit_completion(
+        currency, to_exchange, original_balance)
+
+    if deposit_status is True:
+        print("The deposit has been credited to your account.")
+        return True
 
 
 def wait_for_withdrawal_completion(
@@ -553,6 +615,9 @@ def wait_for_withdrawal_completion(
     :param polling_interval: The interval (in seconds) between status checks.
     """
     print("Starting wait for withdrawal completion...")
+
+    original_balance = fetch_balance(to_exchange, currency)
+
     while True:
         # Check withdrawal status on the source exchange
         withdrawal_status = fetch_withdrawal_status(
@@ -565,20 +630,12 @@ def wait_for_withdrawal_completion(
                 print("The withdrawal has been completed.")
                 txid = withdrawal_status["txid"]
 
-                # Check deposit status on the destination exchange
-                while True:
-                    deposit_status = fetch_deposit_status(
-                        to_exchange, currency, txid)
-                    if deposit_status:
-                        deposit_status_str = deposit_status["status"]
-                        print(f"Current deposit status: {deposit_status_str}")
-                        if deposit_status_str == "ok":
-                            print("The deposit has been credited to your account.")
-                            return
-                    else:
-                        print("Failed to retrieve deposit status.")
+                deposit_status = wait_for_deposit_completion(
+                    currency, to_exchange, original_balance)
 
-                    time.sleep(polling_interval)
+                if deposit_status is True:
+                    print("The deposit has been credited to your account.")
+                    return True
 
                 break
             elif status == "canceled":

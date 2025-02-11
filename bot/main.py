@@ -73,6 +73,7 @@ def determine_target(fx_rate: float, network_data):
         currency = premium[0].split("/")[0]
         if comprehensive_currency_check(
             currency,
+            network_data[currency],
             coinone_markets,
             binance_markets,
             binance_futures_markets,
@@ -248,10 +249,12 @@ def try_target_withdraw(target: str):
             return True
         else:
             # If the currency is not depositable, sell it on Binance
-            sell_order_details = sell(binance, target, "USDT", 100)
-            if sell_order_details is None:
-                return False
-            return True
+            # sell_order_details = sell(binance, target, "USDT", 100)
+            # if sell_order_details is None:
+            #     return False
+            # return True
+            print("Currency not depositable")
+            raise RuntimeError("Currency not depositable")
     except Exception as e:
         print(f"An error occurred in try_target_withdraw")
         # traceback.print_exc()
@@ -327,6 +330,7 @@ def determine_medium(fx_rate):
     """
     # Calculate transfer losses for all possible transfer mediums.
     transfers = conc_calc_transfer_loss(fx_rate)
+    print(transfers)
 
     # Take the currency with the least transfer loss.
     medium = transfers[0]
@@ -358,8 +362,6 @@ def try_medium_withdraw(medium: str):
 
         print(medium_balance, withdrawal_fee, max_precision)
 
-        return
-
         # Make the withdraw request.
         try:
             medium_withdrawal = withdraw_from_coinone(
@@ -377,17 +379,17 @@ def try_medium_withdraw(medium: str):
         if medium_withdrawal is None:
             return False
 
-        medium_withdrawal_id = medium_withdrawal["id"]
+        print(f"Complete medium withdraw request: {medium_withdrawal}")
+        medium_withdrawal_id = medium_withdrawal["transaction"]["id"]
 
         # Wait until the withdrawal is complete.
-        wait_for_withdrawal_completion(
+        wait_for_withdrawal_from_coinone_completion(
             coinone, binance, medium, medium_withdrawal_id)
 
         return True
     except Exception as e:
         print(f"An error occurred in try_medium_withdraw: {e}")
-        traceback.print_exc()
-        return False
+        raise
 
 
 def adjust_and_hedge(target, leverage):
@@ -553,7 +555,7 @@ def confirm_continue():
         sys.exit()
 
 
-leverage = 1
+leverage = 5
 
 # TODO: medium 정할 때 프리미엄이 target보다 낮아야함.
 # TODO: medium manual transfer도 가능하게
@@ -574,12 +576,19 @@ def cycle(state: State, csv_file_data):
     #     return None
 
     # TODO: MUST CHANGE
-    fx_rate = fetch_fx_rate()
+    try:
+        fx_rate = fetch_fx_rate()
+    except Exception as e:
+        print("Error in fetch fx rate")
+        print(e)
+        return
+
     print(f"fx_rate: {fx_rate}")
 
     confirm_continue()
 
-    original_balance = fetch_balance(binance_master, "USDT")
+    original_balance = fetch_balance(
+        binance, "USDT") + fetch_balance(binance_futures, "USDT")
     print(original_balance)
 
     # TODO: cycle 시작시에 target, medium 프리미엄 비교해서 할지 말지 여부 결정
@@ -693,7 +702,8 @@ def cycle(state: State, csv_file_data):
 
     print(f"Compete medium SELL with details: {medium_sell_details}")
 
-    final_balance = fetch_balance(binance_master, "USDT")
+    final_balance = fetch_balance(
+        binance, "USDT") + fetch_balance(binance_futures, "USDT")
     print(original_balance, final_balance)
 
     return {

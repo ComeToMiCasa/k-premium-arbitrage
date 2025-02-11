@@ -2,7 +2,6 @@ import concurrent.futures
 
 import ccxt
 import requests
-
 from exchanges import *
 
 
@@ -130,6 +129,7 @@ def safety_check(target, network_data):
 
 def comprehensive_currency_check(
     currency,
+    currency_data,
     coinone_markets,
     binance_spot_markets,
     binance_futures_markets,
@@ -151,6 +151,9 @@ def comprehensive_currency_check(
     :param coinone_currencies: Pre-fetched currencies data for Coinone.
     :return: True if all conditions are met, False otherwise.
     """
+
+    network = currency_data["Deposit Network ID"]
+
     try:
         # Check if currency is tradable on Coinone
         coinone_tradable = (
@@ -173,8 +176,13 @@ def comprehensive_currency_check(
         )
 
         # Check if currency is withdrawable on Binance
+        withdraw_network = next(
+            (net for net in binance_currencies[currency]['info']['networkList'] if net['network'] == network), None)
+
+        withdraw_enabled = withdraw_network['withdrawEnable'] if withdraw_network else False
+
         binance_withdrawable = (
-            currency in binance_currencies and binance_currencies[currency]["withdraw"]
+            currency in binance_currencies and withdraw_enabled
         )
 
         # Check if currency is depositable on Coinone
